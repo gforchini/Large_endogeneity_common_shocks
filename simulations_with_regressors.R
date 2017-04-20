@@ -10,6 +10,7 @@
 #install.packages("doParallel")
 #install.packages("MASS")
 #install.packages("compiler")
+#install.packages("plyr")
 
 # Load the required packages
 library(mnormt)
@@ -137,7 +138,7 @@ simulations<-cmpfun(function(N,Time,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2){
   D<-D_generation(Time)
   Sample_simulated<-replicate(n =N, individual_generation(Time,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2,m,D))
   #Construct individual estimators 
-
+  
   #Pesaran CCEMG and CCEP estimators  
   #means
   y1_bar<-rowMeans(sapply(Sample_simulated[1,], unlist))
@@ -150,7 +151,7 @@ simulations<-cmpfun(function(N,Time,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2){
   M<-diag(Time)-X%*%ginv(t(X)%*%X)%*%t(X)
   # Project y1 and y2  - notice there is no x1 in our model
   M_times_y1_i<-lapply(Sample_simulated[1,], function(x){ M%*%x}) #M y_1i
- 
+  
   M_times_X1_i<-lapply(Sample_simulated[3,], function(x){ M%*%x}) #M X_1i
   
   M_times_y2_i<-lapply(Sample_simulated[2,], function(x){ M%*%x}) #M y_2i
@@ -173,28 +174,8 @@ simulations<-cmpfun(function(N,Time,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2){
   num<- Reduce("+", num_list )
   P<- den%*%num
   
-  #HL estimators
-  X_HL<-cbind(rep(1,T),X1_bar,X2_bar,t(D)) # Argument of P matrix
-  P_HL<-X_HL%*%solve(t(X_HL)%*%X_HL)%*%t(X_HL) # P matrix
-  XX<-cbind(y1_bar,P_HL%*%y2_bar,X1_bar,t(D)) #Argument of the M matrix
-  M_HL<-diag(Time)-XX%*%ginv(t(XX)%*%XX)%*%t(XX) # M matrix
-  M_HL_times_y1_i<-lapply(Sample_simulated[1,], function(x){ M_HL%*%x})
-  M_HL_times_X1_i<-lapply(Sample_simulated[3,], function(x){ M_HL%*%x}) #M X_1i
-  M_HL_times_y2_i<-lapply(Sample_simulated[2,], function(x){ M_HL%*%P_HL%*%x})
-  M_HL_times_y2_i<-lapply(M_HL_times_y2_i, function(x){ matrix(c(unlist(x)),ncol=1)})
-  M_HL_times_X1y2_i<-apply(cbind(M_HL_times_X1_i, M_HL_times_y2_i) , 1 , function (x){x} ) # M (X_1i,y_2i)
-  M_HL_times_X1y2_i<-lapply(M_HL_times_X1y2_i,function(x) {matrix(c(unlist(x)),ncol=2)})
   
-  den_list<-lapply(M_HL_times_X1y2_i, function(x) solve(t(x)%*%x)) # (X_1i,y_2i) M (X_1i,y_2i)
-  num_list <-mapply(function(x, y) t(x)%*%y, M_HL_times_X1y2_i, M_HL_times_y1_i)  # (X_1i,y_2i) M (X_1i,y_2i)
-  num_list <-lapply(seq_len(ncol(num_list)), function(i) matrix(num_list[,i],ncol=1))
-  HL_MG<-Reduce("+", lapply(1:N,function(i,x,y){x[[i]]%*%y[[i]]},x=den_list,y=num_list) )/N
   
-  den<- solve(Reduce("+", lapply(M_HL_times_X1y2_i, function(x)t(x)%*%x) ))
-  num<- Reduce("+", num_list )
-  HL_P<- den%*%num
-  
- 
   # IV estimators
   H_1<-cbind(rep(1,T),y1_bar,X1_bar,X2_bar,t(D)) #
   H_2<-cbind(rep(1,T),y2_bar,X1_bar,X2_bar,t(D)) #
@@ -226,7 +207,7 @@ simulations<-cmpfun(function(N,Time,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2){
   Pi_2_MG<-Reduce("+", lapply(1:N,function(i,x,y){x[[i]]%*%y[[i]]},x=den2_list,y=num2_list) )/N
   
   Pi_11_MG<-sum(mapply(function(x, y) solve(t(x)%*%x)%*%(t(x)%*%y), M_1_times_X2_i, M_1_times_y1_i))
-
+  
   
   #IV_MG
   IV_MG<-(t(Pi_2_MG)%*%Pi_1_MG)/(t(Pi_2_MG)%*%Pi_2_MG)
@@ -239,11 +220,11 @@ simulations<-cmpfun(function(N,Time,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2){
   den2<- solve(Reduce("+", lapply(M_2_times_X1X2_i, function(x)t(x)%*%x) ))
   num2<- Reduce("+", num2_list )
   Pi_2_P<- den2%*%num2
-
-   #IVP
+  
+  #IVP
   IV_P<-(t(Pi_2_P)%*%Pi_1_P)/(t(Pi_2_P)%*%Pi_2_P)
   #MG,P,HL_MG, HL_P,IV_MG,IV_P
-  return(list(MG[2,],P[2,],HL_MG[2,], HL_P[2,],IV_MG,IV_P))
+  return(list(MG[2,],P[2,],IV_MG,IV_P))
 })
 
 
@@ -253,28 +234,23 @@ simulations<-cmpfun(function(N,Time,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2){
 
 TN<-cmpfun(function(rho_e1e2,rho_gG1,rho_gG2,rho_G1G2,N,Time,Nrep){
   
-  col1<-c('T','N','rho_e1e2','rho_gG1','rho_gG2','rho_G1G2','bias_MG','bias_P','bias_HL_MG','bias_HL_P','bias_IV_MG','bias_IV_P','MSE_MG','MSE_P','MSE_HL_MG','MSE_HL_P','MSE_IV_MG','MSE_IV_P')
+  col1<-c('T','N','rho_e1e2','rho_gG1','rho_gG2','rho_G1G2','bias_MG','bias_P','bias_IV_MG','bias_IV_P','MSE_MG','MSE_P','MSE_IV_MG','MSE_IV_P')
   res<-data.frame(Name=col1)
   results<-replicate(Nrep,simulations(N,Time,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2))
   # use median or mean below depending on what is sought
-  bias_MG<-mean(unlist(results[1,]))-1
-  bias_P<-mean(unlist(results[2,]))-1
-  bias_HL_MG<-mean(unlist(results[3,]))-1
-  bias_HL_P<-mean(unlist(results[4,]))-1
-  bias_IV_MG<-mean(unlist(results[5,]))-1
-  bias_IV_P<-mean(unlist(results[6,]))-1
-  MSE_MG<-mean((unlist(results[1,])-1)^2)
-  MSE_P<-mean((unlist(results[2,])-1)^2)
-  MSE_HL_MG<-mean((unlist(results[3,])-1)^2)
-  MSE_HL_P<-mean((unlist(results[4,])-1)^2)
-  MSE_IV_MG<-mean((unlist(results[5,])-1)^2)
-  MSE_IV_P<-mean((unlist(results[6,])-1)^2)
-  col2<-c(Time,N,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2,bias_MG,bias_P,bias_HL_MG,bias_HL_P,bias_IV_MG,bias_IV_P,MSE_MG,MSE_P,MSE_HL_MG,MSE_HL_P,MSE_IV_MG,MSE_IV_P)
+  bias_MG<-median(unlist(results[1,]))-1
+  bias_P<-median(unlist(results[2,]))-1
+  bias_IV_MG<-median(unlist(results[3,]))-1
+  bias_IV_P<-median(unlist(results[4,]))-1
+  MSE_MG<-median((unlist(results[1,])-1)^2)
+  MSE_P<-median((unlist(results[2,])-1)^2)
+  MSE_IV_MG<-median((unlist(results[3,])-1)^2)
+  MSE_IV_P<-median((unlist(results[4,])-1)^2)
+  col2<-c(Time,N,rho_e1e2,rho_gG1,rho_gG2,rho_G1G2,bias_MG,bias_P,bias_IV_MG,bias_IV_P,MSE_MG,MSE_P,MSE_IV_MG,MSE_IV_P)
   res<-cbind(res,col2)
   return(res)  
 })
 
-TN(.6,.1,.1,.3,100,100,10)
 
 # matrix containing the combination of parameters considered
 x<- expand.grid(c(0.2,0.6), c(25,50,75,100),c(25,50,75,100))
@@ -286,7 +262,8 @@ registerDoRNG(2005)
 
 tab<-foreach(i = 1:32, .combine = cbind, .packages=c('mnormt','MASS','compiler'),
              .export=c('TN','simulations','factors_generation','individual_generation','D_generation','x',
-                       'V2_generation','Epsilon_generation','gG_generation')) %dopar% TN(x[i,1],.3 ,x[i,2] , x[i,3],10000)
+                       'V2_generation','Epsilon_generation','gG_generation')) %dopar% 
+  TN(x[i,1],.1,.1,.3,x[i,2] , x[i,3],10000)
 
 t<-tab[,c(1,seq(2,64,2))] # table containing all results
 
@@ -299,6 +276,6 @@ A02<-A[A$rho_e1e2==0.2,]
 A06<-A[A$rho_e1e2==0.6,]
 
 # Save the results
-write.csv(tab,"results_simulationR6.csv")
-write.csv(A02,"ResultsR02_6.csv")
-write.csv(A06,"ResultsR06_6.csv")
+write.csv(tab,"results_simulationR7.csv")
+write.csv(A02,"ResultsR02_7.csv")
+write.csv(A06,"ResultsR06_7.csv")
